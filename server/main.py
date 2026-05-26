@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 from pydantic import BaseModel
+from datetime import datetime, timedelta
 from mock_data import inventory_items, orders, demand_forecasts, backlog_items, spending_summary, monthly_spending, category_spending, recent_transactions, purchase_orders
 
 app = FastAPI(title="Factory Inventory Management System")
@@ -80,6 +81,8 @@ class Order(BaseModel):
     actual_delivery: Optional[str] = None
     warehouse: Optional[str] = None
     category: Optional[str] = None
+    lead_time_days: Optional[int] = None
+    submitted: Optional[bool] = False
 
 class DemandForecast(BaseModel):
     id: str
@@ -89,6 +92,7 @@ class DemandForecast(BaseModel):
     forecasted_demand: int
     trend: str
     period: str
+    unit_cost: float
 
 class BacklogItem(BaseModel):
     id: str
@@ -119,6 +123,12 @@ class CreatePurchaseOrderRequest(BaseModel):
     unit_cost: float
     expected_delivery_date: str
     notes: Optional[str] = None
+
+class CreateRestockOrderRequest(BaseModel):
+    items: List[dict]
+    total_value: float
+    warehouse: Optional[str] = None
+    category: Optional[str] = None
 
 # API endpoints
 @app.get("/")
@@ -160,6 +170,30 @@ def get_order(order_id: str):
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     return order
+
+@app.post("/api/orders/restock", response_model=Order, status_code=201)
+def create_restock_order(req: CreateRestockOrderRequest):
+    """Submit a restocking order from forecast recommendations"""
+    order_date = datetime.now()
+    lead_time_days = 14
+    new_id = str(len(orders) + 1)
+    new_order = {
+        "id": new_id,
+        "order_number": f"RSK-2025-{int(new_id):04d}",
+        "customer": "Internal Restock",
+        "items": req.items,
+        "status": "Submitted",
+        "order_date": order_date.strftime("%Y-%m-%dT%H:%M:%S"),
+        "expected_delivery": (order_date + timedelta(days=lead_time_days)).strftime("%Y-%m-%dT%H:%M:%S"),
+        "total_value": req.total_value,
+        "lead_time_days": lead_time_days,
+        "submitted": True,
+        "warehouse": req.warehouse,
+        "category": req.category,
+        "actual_delivery": None,
+    }
+    orders.append(new_order)
+    return new_order
 
 @app.get("/api/demand", response_model=List[DemandForecast])
 def get_demand_forecasts():
